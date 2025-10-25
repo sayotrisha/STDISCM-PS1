@@ -1,4 +1,4 @@
-/* Variant 2: Linear Search + Print Immediately */
+/* Variant 3: Straight Division + Print at End */
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -8,20 +8,36 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.atomic.AtomicLong;
 
-public class Variant2 {
+public class Variant3 {
+
+    //Data Structure for Results
+    static class PrimeResult implements Comparable<PrimeResult> {
+        long prime;
+        int threadNum;
+        String timestamp;
+
+        public PrimeResult(long prime, int threadNum, String timestamp) {
+            this.prime = prime;
+            this.threadNum = threadNum;
+            this.timestamp = timestamp;
+        }
+
+        @Override
+        public int compareTo(PrimeResult other) {
+            return Long.compare(this.prime, other.prime);
+        }
+    }
 
     //Globals
-    private static final Object gPrintLock = new Object();
-   
-    private static final AtomicLong gCurrentNumber = new AtomicLong(2);
+    private static final Object gResultsLock = new Object();
+    private static final List<PrimeResult> gAllPrimes = new ArrayList<>();
 
-    //Utility Functions
     private static Map<String, Long> readConfig() {
         Properties props = new Properties();
         Map<String, Long> config = new HashMap<>();
@@ -63,33 +79,29 @@ public class Variant2 {
 
     //Thread Worker
     static class PrimeFinderRunnable implements Runnable {
-        private final long maxNumber;
+        private final long start;
+        private final long end;
         private final int threadNum;
 
-        public PrimeFinderRunnable(long maxNumber, int threadNum) {
-            this.maxNumber = maxNumber;
+        public PrimeFinderRunnable(long start, long end, int threadNum) {
+            this.start = start;
+            this.end = end;
             this.threadNum = threadNum;
         }
 
         @Override
         public void run() {
-            while (true) {
-                
-                long n = gCurrentNumber.getAndIncrement();
-                
-                if (n > maxNumber) {
-                    break; 
-                }
-                
+            List<PrimeResult> localPrimes = new ArrayList<>();
+            for (long n = start; n <= end; ++n) {
                 if (isPrime(n)) {
-                    synchronized (gPrintLock) {
-                        System.out.println(
-                            "(Thread: " + threadNum + 
-                            ") (" + getCurrentTimestamp() + 
-                            ") | Prime: " + n
-                        );
-						Thread.yield();
-                    }
+                    localPrimes.add(new PrimeResult(n, threadNum, getCurrentTimestamp()));
+                }
+            }
+            
+            // Lock once to dump local results into the global list
+            if (!localPrimes.isEmpty()) {
+                synchronized (gResultsLock) {
+                    gAllPrimes.addAll(localPrimes);
                 }
             }
         }
@@ -97,8 +109,8 @@ public class Variant2 {
 
     //Main Function
     public static void main(String[] args) {
-       
-        System.out.println("Variant 2: Linear Search, Print Immediately");
+    
+        System.out.println("Variant 3: Straight Division, Print at End");
         System.out.println("Start time: " + getCurrentTimestamp());
         long appStartTime = System.nanoTime();
 
@@ -107,17 +119,25 @@ public class Variant2 {
         long maxNumber = config.get("max_number");
 
         System.out.println("Config: " + threadCount + " threads and " + maxNumber + " max number");
+        
+        System.out.println("Processing");
 
         List<Thread> threads = new ArrayList<>();
+        long rangePerThread = maxNumber / threadCount;
 
-        // Launch threads
         for (int i = 0; i < threadCount; ++i) {
-            Thread t = new Thread(new PrimeFinderRunnable(maxNumber, i + 1));
+            long start = i * rangePerThread + 1;
+            if (i == 0) start = 2; // Start from 2
+            
+            long end = (i == threadCount - 1) 
+                            ? maxNumber
+                            : (i + 1) * rangePerThread;
+            
+            Thread t = new Thread(new PrimeFinderRunnable(start, end, i + 1));
             threads.add(t);
             t.start();
         }
 
-        // Wait for all threads to complete
         for (Thread t : threads) {
             try {
                 t.join();
@@ -125,15 +145,27 @@ public class Variant2 {
                 System.err.println("Thread interrupted: " + e.getMessage());
             }
         }
-        
-        System.out.println("All threads finished.");
-        
+
+        // Sort and print all results at the end
+        Collections.sort(gAllPrimes);
+
+        System.out.println("Prime Numbers Sorted by Number");
+        for (PrimeResult result : gAllPrimes) {
+            System.out.println(
+                "(Thread: " + result.threadNum + 
+                ") (" + result.timestamp + 
+                ") | Prime: " + result.prime
+            );
+        }
+        System.out.println("\nTotal Prime Numbers: " + gAllPrimes.size());
+        System.out.println("--- End of List ---");
+
         long appEndTime = System.nanoTime();
         System.out.println("\nEnd Time: " + getCurrentTimestamp());
         
         double duration = (appEndTime - appStartTime) / 1_000_000_000.0;
         System.out.println("Total execution time: " + duration + " seconds");
-    
+        
     }
 }
 
